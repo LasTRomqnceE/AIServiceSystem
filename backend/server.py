@@ -286,9 +286,12 @@ async def list_appointments(user: User = Depends(get_current_user)):
 @api.post("/appointments", response_model=Appointment)
 async def create_appointment(body: AppointmentCreate, user: User = Depends(get_current_user)):
     customer_id = body.customer_id if (user.role == "admin" and body.customer_id) else user.id
-    veh = await db.vehicles.find_one({"id": body.vehicle_id})
+    veh = await db.vehicles.find_one({"id": body.vehicle_id}, {"_id": 0})
     if not veh:
         raise HTTPException(status_code=404, detail="Araç bulunamadı")
+    # Customers may only book for their own vehicles
+    if user.role != "admin" and veh["customer_id"] != user.id:
+        raise HTTPException(status_code=403, detail="Bu araç size ait değil")
     a = Appointment(customer_id=customer_id, vehicle_id=body.vehicle_id,
                     date=body.date, time=body.time, issue=body.issue)
     await db.appointments.insert_one(a.model_dump())

@@ -71,7 +71,7 @@ class TestAuth:
         assert r.status_code == 200, r.text
         data = r.json()
         assert "token" in data and isinstance(data["token"], str) and len(data["token"]) > 10
-        assert data["user"]["email"] == email
+        assert data["user"]["email"] == email.lower()
         assert data["user"]["role"] == "customer"
 
     def test_register_duplicate_email(self, session):
