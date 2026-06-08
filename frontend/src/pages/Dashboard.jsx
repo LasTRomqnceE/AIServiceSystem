@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Truck, Calendar, ClipboardList, Sparkles, Plus, Trash2, Loader2 } from "lucide-react";
+import { Truck, Calendar, ClipboardList, Sparkles, Plus, Trash2, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -19,7 +19,6 @@ export default function Dashboard() {
   const [records, setRecords] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ plate: "", brand: "", model: "", year: new Date().getFullYear(), vin: "", km: 0 });
-  const [analysis, setAnalysis] = useState({ open: false, loading: false, vehicleId: null, text: "" });
 
   const load = async () => {
     try {
@@ -47,18 +46,6 @@ export default function Dashboard() {
     if (!window.confirm("Aracı silmek istediğinize emin misiniz?")) return;
     try { await api.delete(`/vehicles/${id}`); toast.success("Silindi"); load(); }
     catch (e) { toast.error("Silinemedi"); }
-  };
-
-  const runAnalysis = async (vid) => {
-    setAnalysis({ open: true, loading: true, vehicleId: vid, text: "" });
-    try {
-      const { data } = await api.post(`/ai/analyze/${vid}`);
-      setAnalysis({ open: true, loading: false, vehicleId: vid, text: data.analysis });
-    } catch (e) {
-      const detail = e?.response?.data?.detail || "AI analizi başarısız";
-      toast.error(detail);
-      setAnalysis({ open: false, loading: false, vehicleId: null, text: "" });
-    }
   };
 
   const upcoming = appts.filter(a => a.status !== "tamamlandı" && a.status !== "iptal").slice(0, 5);
@@ -135,23 +122,23 @@ export default function Dashboard() {
             <div className="divide-y divide-border">
               {vehicles.map((v) => (
                 <div key={v.id} className="p-5 hover:bg-secondary/50 transition-colors flex items-center justify-between gap-4" data-testid={`vehicle-row-${v.id}`}>
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="flex h-12 w-12 items-center justify-center border border-brand text-brand"><Truck className="h-6 w-6" /></div>
+                  <Link to={`/arac/${v.id}`} data-testid={`vehicle-open-${v.id}`} className="flex items-center gap-4 flex-1 min-w-0 group">
+                    <div className="flex h-12 w-12 items-center justify-center border border-brand text-brand group-hover:bg-brand group-hover:text-white transition-colors"><Truck className="h-6 w-6" /></div>
                     <div className="min-w-0">
-                      <div className="font-heading text-lg font-bold uppercase truncate">{v.brand} {v.model}</div>
+                      <div className="font-heading text-lg font-bold uppercase truncate group-hover:text-brand transition-colors">{v.brand} {v.model}</div>
                       <div className="font-mono text-xs text-muted-foreground">
                         {v.plate} · {v.year} · {v.km.toLocaleString("tr-TR")} km
                       </div>
                     </div>
-                  </div>
+                  </Link>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => runAnalysis(v.id)}
-                      data-testid={`analyze-btn-${v.id}`}
+                    <Link
+                      to={`/arac/${v.id}`}
+                      data-testid={`open-modules-${v.id}`}
                       className="inline-flex items-center gap-1 border border-brand text-brand px-3 py-2 text-xs font-bold uppercase hover:bg-brand hover:text-white transition-colors"
                     >
-                      <Sparkles className="h-3 w-3" /> AI Analiz
-                    </button>
+                      <Sparkles className="h-3 w-3" /> Modüller <ChevronRight className="h-3 w-3" />
+                    </Link>
                     <button onClick={() => removeVehicle(v.id)} data-testid={`del-vehicle-${v.id}`} className="border border-border p-2 hover:border-red-500 hover:text-red-500 transition-colors">
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -232,30 +219,6 @@ export default function Dashboard() {
           </div>
         )}
       </section>
-
-      {/* Analysis modal */}
-      {analysis.open && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !analysis.loading && setAnalysis({ open: false, loading: false, vehicleId: null, text: "" })}>
-          <div className="bg-background border border-brand max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-5 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Sparkles className="h-5 w-5 text-brand" />
-                <h3 className="font-heading text-xl font-bold uppercase">AI Servis Analizi</h3>
-              </div>
-              <button onClick={() => setAnalysis({ open: false, loading: false, vehicleId: null, text: "" })} className="label-mono hover:text-brand">Kapat ×</button>
-            </div>
-            <div className="p-6">
-              {analysis.loading ? (
-                <div className="flex items-center justify-center py-12 gap-3 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin" /> Servis geçmişi analiz ediliyor...
-                </div>
-              ) : (
-                <div className="font-mono text-sm whitespace-pre-wrap leading-relaxed">{analysis.text}</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

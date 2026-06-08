@@ -145,6 +145,8 @@ class ServiceRecord(BaseModel):
     technician_name: str
     technician_notes: Optional[str] = None
     cost: float = 0.0
+    module: Literal["engine", "turbo", "transmission", "brake", "electrical", "periodic", "other"] = "other"
+    mileage: int = 0
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -157,6 +159,64 @@ class ServiceRecordCreate(BaseModel):
     technician_name: str
     technician_notes: Optional[str] = None
     cost: float = 0.0
+    module: Literal["engine", "turbo", "transmission", "brake", "electrical", "periodic", "other"] = "other"
+    mileage: int = 0
+
+
+# ---------- Service Module Models ----------
+ModuleKey = Literal["engine", "turbo", "transmission", "brake", "electrical", "periodic"]
+Severity = Literal["düşük", "orta", "yüksek", "kritik"]
+IssueStatus = Literal["açık", "devam ediyor", "çözüldü"]
+
+
+class Issue(BaseModel):
+    id: str = Field(default_factory=new_id)
+    vehicle_id: str
+    customer_id: str
+    module: ModuleKey
+    date: str
+    description: str
+    severity: Severity = "orta"
+    status: IssueStatus = "açık"
+    created_at: str = Field(default_factory=now_iso)
+
+
+class IssueCreate(BaseModel):
+    vehicle_id: str
+    module: ModuleKey
+    date: str
+    description: str
+    severity: Severity = "orta"
+    status: IssueStatus = "açık"
+    customer_id: Optional[str] = None
+
+
+class IssueUpdate(BaseModel):
+    status: Optional[IssueStatus] = None
+    severity: Optional[Severity] = None
+    description: Optional[str] = None
+
+
+class MaintenanceTask(BaseModel):
+    id: str = Field(default_factory=new_id)
+    vehicle_id: str
+    customer_id: str
+    task_name: str
+    interval_km: int  # how often (in km)
+    last_done_km: int = 0
+    last_done_date: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+
+class MaintenanceTaskCreate(BaseModel):
+    vehicle_id: str
+    task_name: str
+    interval_km: int
+    last_done_km: int = 0
+    last_done_date: Optional[str] = None
+    notes: Optional[str] = None
+    customer_id: Optional[str] = None
 
 
 class AIAnalysis(BaseModel):
@@ -470,6 +530,209 @@ async def list_analyses(vehicle_id: str, user: User = Depends(get_current_user))
     return [AIAnalysis(**d) for d in docs]
 
 
+# ---------- Issues (per-module problems) ----------
+MODULE_LABELS = {
+    "engine": "Motor Sistemi",
+    "turbo": "Turbo Sistemi",
+    "transmission": "Şanzıman Sistemi",
+    "brake": "Fren Sistemi",
+    "electrical": "Elektrik Diagnostiği",
+    "periodic": "Periyodik Bakım",
+}
+
+
+async def _check_vehicle_access(vehicle_id: str, user: User) -> dict:
+    q = {"id": vehicle_id} if user.role == "admin" else {"id": vehicle_id, "customer_id": user.id}
+    veh = await db.vehicles.find_one(q, {"_id": 0})
+    if not veh:
+        raise HTTPException(status_code=404, detail="Araç bulunamadı")
+    return veh
+
+
+@api.get("/issues", response_model=List[Issue])
+async def list_issues(
+    vehicle_id: Optional[str] = None,
+    module: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    query: dict = {} if user.role == "admin" else {"customer_id": user.id}
+    if vehicle_id:
+        query["vehicle_id"] = vehicle_id
+    if module:
+        query["module"] = module
+    docs = await db.issues.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return [Issue(**d) for d in docs]
+
+
+@api.post("/issues", response_model=Issue)
+async def create_issue(body: IssueCreate, user: User = Depends(get_current_user)):
+    veh = await _check_vehicle_access(body.vehicle_id, user)
+    customer_id = body.customer_id if (user.role == "admin" and body.customer_id) else veh["customer_id"]
+    issue = Issue(
+        vehicle_id=body.vehicle_id, customer_id=customer_id, module=body.module,
+        date=body.date, description=body.description,
+        severity=body.severity, status=body.status,
+    )
+    await db.issues.insert_one(issue.model_dump())
+    return issue
+
+
+@api.patch("/issues/{iid}", response_model=Issue)
+async def update_issue(iid: str, body: IssueUpdate, user: User = Depends(get_current_user)):
+    q = {"id": iid} if user.role == "admin" else {"id": iid, "customer_id": user.id}
+    update = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+    if not update:
+        raise HTTPException(status_code=400, detail="Güncellenecek alan yok")
+    res = await db.issues.find_one_and_update(q, {"$set": update}, return_document=True)
+    if not res:
+        raise HTTPException(status_code=404, detail="Sorun bulunamadı")
+    res.pop("_id", None)
+    return Issue(**res)
+
+
+@api.delete("/issues/{iid}")
+async def delete_issue(iid: str, user: User = Depends(get_current_user)):
+    q = {"id": iid} if user.role == "admin" else {"id": iid, "customer_id": user.id}
+    res = await db.issues.delete_one(q)
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Sorun bulunamadı")
+    return {"ok": True}
+
+
+# ---------- Maintenance Tasks ----------
+@api.get("/maintenance-tasks", response_model=List[MaintenanceTask])
+async def list_maintenance_tasks(vehicle_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    query: dict = {} if user.role == "admin" else {"customer_id": user.id}
+    if vehicle_id:
+        query["vehicle_id"] = vehicle_id
+    docs = await db.maintenance_tasks.find(query, {"_id": 0}).sort("task_name", 1).to_list(1000)
+    return [MaintenanceTask(**d) for d in docs]
+
+
+@api.post("/maintenance-tasks", response_model=MaintenanceTask)
+async def create_maintenance_task(body: MaintenanceTaskCreate, user: User = Depends(get_current_user)):
+    veh = await _check_vehicle_access(body.vehicle_id, user)
+    customer_id = body.customer_id if (user.role == "admin" and body.customer_id) else veh["customer_id"]
+    task = MaintenanceTask(
+        vehicle_id=body.vehicle_id, customer_id=customer_id, task_name=body.task_name,
+        interval_km=body.interval_km, last_done_km=body.last_done_km,
+        last_done_date=body.last_done_date, notes=body.notes,
+    )
+    await db.maintenance_tasks.insert_one(task.model_dump())
+    return task
+
+
+# ---------- Module Aggregate ----------
+@api.get("/vehicles/{vehicle_id}/modules/{module_key}")
+async def get_module(vehicle_id: str, module_key: str, user: User = Depends(get_current_user)):
+    if module_key not in MODULE_LABELS:
+        raise HTTPException(status_code=400, detail="Geçersiz modül")
+    veh = await _check_vehicle_access(vehicle_id, user)
+
+    issues = await db.issues.find(
+        {"vehicle_id": vehicle_id, "module": module_key}, {"_id": 0}
+    ).sort("date", -1).to_list(500)
+    records = await db.service_records.find(
+        {"vehicle_id": vehicle_id, "module": module_key}, {"_id": 0}
+    ).sort("date", -1).to_list(500)
+
+    # Recurring detection: more than 1 service in last 6 months
+    six_months_ago = (datetime.now(timezone.utc) - timedelta(days=180)).date().isoformat()
+    recent_repairs = [r for r in records if r["date"] >= six_months_ago]
+    recurring = None
+    if len(recent_repairs) >= 2:
+        recurring = {
+            "count": len(recent_repairs),
+            "period": "son 6 ay",
+            "message": f"{MODULE_LABELS[module_key]} arızası son 6 ayda {len(recent_repairs)} kez tekrarladı",
+            "severity": "yüksek" if len(recent_repairs) >= 3 else "orta",
+        }
+
+    # Maintenance tasks for the periodic module
+    maintenance = []
+    if module_key == "periodic":
+        m_docs = await db.maintenance_tasks.find(
+            {"vehicle_id": vehicle_id}, {"_id": 0}
+        ).to_list(500)
+        for m in m_docs:
+            next_due_km = (m.get("last_done_km") or 0) + m["interval_km"]
+            remaining = next_due_km - veh["km"]
+            status = "gecikmiş" if remaining < 0 else ("yaklaşıyor" if remaining < 5000 else "uygun")
+            maintenance.append({**m, "next_due_km": next_due_km, "remaining_km": remaining, "status": status})
+
+    return {
+        "module_key": module_key,
+        "module_label": MODULE_LABELS[module_key],
+        "vehicle": veh,
+        "issues": issues,
+        "service_records": records,
+        "recurring": recurring,
+        "maintenance_tasks": maintenance,
+    }
+
+
+# ---------- Module-scoped AI ----------
+@api.post("/ai/module-analyze/{vehicle_id}/{module_key}")
+async def ai_module_analyze(vehicle_id: str, module_key: str, user: User = Depends(get_current_user)):
+    from emergentintegrations.llm.chat import UserMessage
+    if module_key not in MODULE_LABELS:
+        raise HTTPException(status_code=400, detail="Geçersiz modül")
+    veh = await _check_vehicle_access(vehicle_id, user)
+
+    issues = await db.issues.find(
+        {"vehicle_id": vehicle_id, "module": module_key}, {"_id": 0}
+    ).sort("date", -1).to_list(200)
+    records = await db.service_records.find(
+        {"vehicle_id": vehicle_id, "module": module_key}, {"_id": 0}
+    ).sort("date", -1).to_list(200)
+
+    if not issues and not records:
+        raise HTTPException(status_code=400, detail="Bu modül için kayıt bulunamadı")
+
+    module_label = MODULE_LABELS[module_key]
+    issues_text = "\n".join([
+        f"- {i['date']} | {i['description']} | Şiddet: {i['severity']} | Durum: {i['status']}"
+        for i in issues
+    ]) or "Kayıtlı sorun yok"
+    records_text = "\n".join([
+        f"- {r['date']} | Onarım: {r['repairs']} | Parçalar: {', '.join(r.get('parts_replaced', []))} | KM: {r.get('mileage', 0)} | Maliyet: {r.get('cost', 0)} TL"
+        for r in records
+    ]) or "Kayıtlı onarım yok"
+
+    prompt = f"""Araç: {veh['brand']} {veh['model']} ({veh['year']}) - Plaka {veh['plate']} - {veh['km']} km
+Analiz Modülü: {module_label}
+
+SORUNLAR:
+{issues_text}
+
+ONARIM GEÇMİŞİ:
+{records_text}
+
+Lütfen yalnızca **{module_label}** üzerine odaklan ve şu başlıklarda TÜRKÇE analiz ver:
+1. **Olası Nedenler** (madde halinde, en olası olandan başla)
+2. **Tanı Adımları** (test/ölçüm önerileri)
+3. **Aciliyet Seviyesi** (DÜŞÜK / ORTA / YÜKSEK / KRİTİK) — kısa gerekçe
+4. **Önerilen Onarım Aksiyonları**
+5. **Tekrarlama Riski / Önleyici Öneriler**"""
+
+    chat = _llm_chat(
+        f"module-{vehicle_id}-{module_key}",
+        system_msg=f"Sen ağır vasıta '{module_label}' uzmanısın. Sadece bu sistemle ilgili teknik analiz ver. Daima TÜRKÇE konuş.",
+    )
+    try:
+        resp = await chat.send_message(UserMessage(text=prompt))
+        analysis_text = resp if isinstance(resp, str) else str(resp)
+    except Exception as e:
+        logger.exception("Module AI analyze error")
+        raise HTTPException(status_code=500, detail=f"AI analizi başarısız: {e}")
+
+    rec = AIAnalysis(customer_id=veh["customer_id"], vehicle_id=vehicle_id, analysis=analysis_text)
+    doc = rec.model_dump()
+    doc["module"] = module_key
+    await db.ai_analyses.insert_one(dict(doc))  # pass a copy so _id isn't injected into response
+    return {**doc, "module_label": module_label}
+
+
 # ---------- Stats (admin dashboard) ----------
 @api.get("/admin/stats")
 async def admin_stats(_: User = Depends(require_admin)):
@@ -517,36 +780,120 @@ async def seed():
 
         # Service records
         srs = [
-            ServiceRecord(customer_id=cust_id, vehicle_id=v1.id, date="2025-09-12",
+            ServiceRecord(customer_id=cust_id, vehicle_id=v1.id, date="2025-12-12",
                           repairs="Turbo arızası giderildi, intercooler temizliği",
                           parts_replaced=["Turbo kompresör", "Hortum seti"],
-                          technician_name="Mehmet Demir", cost=42500.0,
+                          technician_name="Mehmet Demir", cost=42500.0, mileage=412000,
+                          module="turbo",
                           technician_notes="Turbo basınç kaçağı tespit edildi"),
             ServiceRecord(customer_id=cust_id, vehicle_id=v1.id, date="2025-11-03",
                           repairs="Fren balata ve disk değişimi",
                           parts_replaced=["Ön fren balatası", "Arka fren balatası", "Fren diski (x2)"],
-                          technician_name="Hasan Kaya", cost=18750.0,
+                          technician_name="Hasan Kaya", cost=18750.0, mileage=419500,
+                          module="brake",
                           technician_notes="Disk eskimişti"),
             ServiceRecord(customer_id=cust_id, vehicle_id=v1.id, date="2026-01-15",
                           repairs="Yağ değişimi ve filtre seti",
                           parts_replaced=["Motor yağı", "Yağ filtresi", "Hava filtresi", "Yakıt filtresi"],
-                          technician_name="Mehmet Demir", cost=6800.0),
+                          technician_name="Mehmet Demir", cost=6800.0, mileage=424800,
+                          module="periodic"),
+            ServiceRecord(customer_id=cust_id, vehicle_id=v1.id, date="2026-01-28",
+                          repairs="Turbo waste-gate aktüatör revizyonu — basınç kaçağı tekrarı",
+                          parts_replaced=["Waste-gate aktüatör", "Vakum hortumu"],
+                          technician_name="Mehmet Demir", cost=15400.0, mileage=425000,
+                          module="turbo",
+                          technician_notes="3 ay önce yapılan turbo onarımının tekrarı"),
             ServiceRecord(customer_id=cust_id, vehicle_id=v2.id, date="2025-08-20",
                           repairs="Şanzıman revizyonu",
                           parts_replaced=["Senkromeç seti", "Şanzıman yağı"],
-                          technician_name="Hasan Kaya", cost=58200.0,
+                          technician_name="Hasan Kaya", cost=58200.0, mileage=595000,
+                          module="transmission",
                           technician_notes="3. vites geçişinde sorun vardı"),
             ServiceRecord(customer_id=cust_id, vehicle_id=v2.id, date="2025-12-08",
                           repairs="Marş motoru değişimi",
                           parts_replaced=["Marş motoru"],
-                          technician_name="Ali Çelik", cost=14300.0),
+                          technician_name="Ali Çelik", cost=14300.0, mileage=609800,
+                          module="electrical"),
             ServiceRecord(customer_id=cust_id, vehicle_id=v3.id, date="2025-10-22",
                           repairs="Klima kompresörü değişimi",
                           parts_replaced=["Klima kompresörü", "Soğutucu gaz"],
-                          technician_name="Mehmet Demir", cost=12750.0),
+                          technician_name="Mehmet Demir", cost=12750.0, mileage=275000,
+                          module="electrical"),
         ]
         for sr in srs:
             await db.service_records.insert_one(sr.model_dump())
+
+        # Issues per module (v1 = Mercedes Actros)
+        issues_data = [
+            # Engine
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="engine", date="2026-02-01",
+                  description="Rölantide motor titremesi, düzensiz çalışma", severity="orta", status="açık"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="engine", date="2026-01-20",
+                  description="Yağ basınç düşüş uyarısı (panel)", severity="yüksek", status="devam ediyor"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="engine", date="2025-12-10",
+                  description="Enjektör temizliği yapıldı", severity="düşük", status="çözüldü"),
+            # Turbo
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="turbo", date="2026-01-28",
+                  description="Yük altında çekiş kaybı", severity="yüksek", status="devam ediyor"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="turbo", date="2026-01-25",
+                  description="Turbodan ıslık benzeri ses", severity="orta", status="devam ediyor"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="turbo", date="2025-09-10",
+                  description="Boost (turbo basıncı) kaçağı tespit edildi", severity="kritik", status="çözüldü"),
+            # Brake
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="brake", date="2026-02-05",
+                  description="Fren mesafesi arttı, frenleme verimi düşük", severity="yüksek", status="açık"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="brake", date="2026-01-12",
+                  description="ABS sensör arızası — gösterge ışığı yanıyor", severity="orta", status="devam ediyor"),
+            Issue(vehicle_id=v1.id, customer_id=cust_id, module="brake", date="2025-10-30",
+                  description="Balata değişimi gerekli (aşınma %85)", severity="orta", status="çözüldü"),
+            # Electrical (v2)
+            Issue(vehicle_id=v2.id, customer_id=cust_id, module="electrical", date="2026-02-03",
+                  description="Akü voltaj dalgalanması (12.4V — 14.6V arası)", severity="orta", status="açık"),
+            Issue(vehicle_id=v2.id, customer_id=cust_id, module="electrical", date="2026-01-18",
+                  description="ECU hata kodları: P0301, P0420", severity="yüksek", status="devam ediyor"),
+            Issue(vehicle_id=v2.id, customer_id=cust_id, module="electrical", date="2025-12-05",
+                  description="Kablo demeti inceleme — şüpheli kontak noktası", severity="düşük", status="açık"),
+            # Transmission (v2)
+            Issue(vehicle_id=v2.id, customer_id=cust_id, module="transmission", date="2026-02-02",
+                  description="3. vites sert geçiş, kısa süreli kaçırma", severity="orta", status="açık"),
+        ]
+        for iss in issues_data:
+            await db.issues.insert_one(iss.model_dump())
+
+        # Maintenance tasks (periodic) for v1
+        m_tasks = [
+            MaintenanceTask(vehicle_id=v1.id, customer_id=cust_id,
+                            task_name="Motor yağı + filtre değişimi",
+                            interval_km=30000, last_done_km=424800,
+                            last_done_date="2026-01-15"),
+            MaintenanceTask(vehicle_id=v1.id, customer_id=cust_id,
+                            task_name="Hava filtresi değişimi",
+                            interval_km=40000, last_done_km=420000,
+                            last_done_date="2025-12-01"),
+            MaintenanceTask(vehicle_id=v1.id, customer_id=cust_id,
+                            task_name="Yakıt filtresi değişimi",
+                            interval_km=50000, last_done_km=400000,
+                            last_done_date="2025-08-15"),
+            MaintenanceTask(vehicle_id=v1.id, customer_id=cust_id,
+                            task_name="Şanzıman yağı kontrolü",
+                            interval_km=80000, last_done_km=380000,
+                            last_done_date="2025-06-10"),
+            MaintenanceTask(vehicle_id=v1.id, customer_id=cust_id,
+                            task_name="Fren balata kontrolü",
+                            interval_km=20000, last_done_km=419500,
+                            last_done_date="2025-11-03"),
+            # v2
+            MaintenanceTask(vehicle_id=v2.id, customer_id=cust_id,
+                            task_name="Motor yağı + filtre değişimi",
+                            interval_km=30000, last_done_km=605000,
+                            last_done_date="2025-12-15"),
+            MaintenanceTask(vehicle_id=v2.id, customer_id=cust_id,
+                            task_name="Fren balata kontrolü",
+                            interval_km=20000, last_done_km=580000,
+                            last_done_date="2025-09-01"),
+        ]
+        for t in m_tasks:
+            await db.maintenance_tasks.insert_one(t.model_dump())
 
         # Appointments
         appts = [

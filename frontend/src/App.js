@@ -18,6 +18,8 @@ import Appointments from "./pages/Appointments";
 import ServiceHistory from "./pages/ServiceHistory";
 import AIAssistant from "./pages/AIAssistant";
 import Admin from "./pages/Admin";
+import VehicleDetail from "./pages/VehicleDetail";
+import ModuleDetail from "./pages/ModuleDetail";
 
 // init theme before render
 (() => {
@@ -47,6 +49,8 @@ export default function App() {
             <Route path="/giris" element={<Login />} />
             <Route path="/kayit" element={<Register />} />
             <Route path="/panel" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/arac/:vehicleId" element={<ProtectedRoute><VehicleDetail /></ProtectedRoute>} />
+            <Route path="/arac/:vehicleId/modul/:moduleKey" element={<ProtectedRoute><ModuleDetail /></ProtectedRoute>} />
             <Route path="/randevular" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
             <Route path="/servis-gecmisi" element={<ProtectedRoute><ServiceHistory /></ProtectedRoute>} />
             <Route path="/ai-asistan" element={<ProtectedRoute><AIAssistant /></ProtectedRoute>} />
