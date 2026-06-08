@@ -1,18 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Wrench, Cog, Truck, ShieldCheck, Bot, Activity, Phone, ChevronRight } from "lucide-react";
+import { ArrowRight, Phone, ChevronRight } from "lucide-react";
+import ServiceSectionPanel from "../components/ServiceSectionPanel";
+import { SERVICE_SECTIONS } from "../lib/serviceSections";
 
 const HERO_IMG = "https://images.pexels.com/photos/6563903/pexels-photo-6563903.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 const SERVICE_IMG = "https://images.unsplash.com/photo-1615906655593-ad0386982a0f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwxfHxtZWNoYW5pYyUyMHJlcGFpcmluZyUyMHRydWNrJTIwZW5naW5lfGVufDB8fHx8MTc4MDkyMDI2OHww&ixlib=rb-4.1.0&q=85";
 
-const SERVICES = [
-  { icon: Cog, title: "Motor & Turbo", desc: "Komple motor revizyonu, turbo onarımı, EGR ve enjektör servisi.", code: "01" },
-  { icon: Wrench, title: "Şanzıman", desc: "Manuel ve otomatik şanzıman revizyon, debriyaj, kavrama.", code: "02" },
-  { icon: ShieldCheck, title: "Fren Sistemleri", desc: "ABS/EBS test, disk-balata, hava sistemleri, hortum.", code: "03" },
-  { icon: Activity, title: "Elektrik & Diagnostik", desc: "OBD diagnostik, ECU programlama, aydınlatma ve şarj sistemleri.", code: "04" },
-  { icon: Truck, title: "Periyodik Bakım", desc: "Yağ, filtre, antifriz, hortum kontrolleri ve raporlama.", code: "05" },
-  { icon: Bot, title: "AI Destekli Tanı", desc: "Servis geçmişinize göre tekrarlayan arıza analizi ve öneriler.", code: "06" },
-];
+const SERVICES = SERVICE_SECTIONS; // 6 items, full content lives in lib/serviceSections.js
 
 const STATS = [
   { v: "25+", l: "Yıllık Tecrübe" },
@@ -22,6 +17,7 @@ const STATS = [
 ];
 
 export default function Home() {
+  const [selected, setSelected] = useState(null);
   return (
     <div>
       {/* HERO */}
@@ -109,17 +105,23 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-border">
           {SERVICES.map((s, i) => (
-            <div key={s.title} className="bg-card p-8 hover:bg-secondary transition-colors group" data-testid={`service-card-${i}`}>
+            <button
+              key={s.title}
+              type="button"
+              onClick={() => setSelected(s)}
+              data-testid={`service-card-${i}`}
+              className="bg-card p-8 hover:bg-secondary transition-colors group text-left focus:outline-none focus:ring-2 focus:ring-brand focus:ring-inset"
+            >
               <div className="flex items-start justify-between mb-6">
                 <s.icon className="h-10 w-10 text-brand" strokeWidth={1.5} />
                 <span className="font-mono text-xs text-muted-foreground">// {s.code}</span>
               </div>
               <h3 className="font-heading text-2xl font-bold uppercase mb-2">{s.title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">{s.short}</p>
               <div className="mt-6 inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-brand opacity-0 group-hover:opacity-100 transition-opacity">
                 Detay <ChevronRight className="h-3 w-3" />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </section>
@@ -177,6 +179,8 @@ export default function Home() {
           </Link>
         </div>
       </section>
+
+      <ServiceSectionPanel section={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

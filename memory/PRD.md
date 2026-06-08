@@ -38,6 +38,19 @@ Modern, responsive website (Turkish) for a Heavy Vehicle Service Management Syst
 - 31/31 backend tests passing (auth, vehicles, appointments, service records, admin, AI chat streaming, AI analyze).
 - Fixed authorization gap: customers can no longer create appointments on someone else's vehicle.
 
+## Iteration 2 (2026-02-08): Modular Service Sections
+- **New backend models**: `Issue` (vehicle_id, module, date, description, severity, status), `MaintenanceTask` (interval_km, last_done_km, next_due tracking). ServiceRecord gained `module` and `mileage` fields.
+- **New endpoints**:
+  - `GET/POST/PATCH/DELETE /api/issues` — module-scoped problem tracking with severity (düşük/orta/yüksek/kritik) + status (açık/devam ediyor/çözüldü).
+  - `GET/POST /api/maintenance-tasks` — scheduled maintenance with overdue/upcoming/ok status.
+  - `GET /api/vehicles/{id}/modules/{key}` — aggregated module view (issues + service_records + recurring detection + maintenance_tasks).
+  - `POST /api/ai/module-analyze/{vid}/{key}` — Claude Sonnet 4.5 analysis scoped to single module's data.
+- **New frontend pages**: 
+  - `/arac/:vehicleId` — Vehicle detail with 7 clickable module cards showing live counts/recurring badges.
+  - `/arac/:vehicleId/modul/:moduleKey` — Module panel with issues list, repair history, color-coded severity, "AI ile Analiz Et" button, periodic maintenance schedule.
+- **Recurring detection**: 2+ service records in last 6 months triggers warning banner with severity (yüksek if 3+).
+- **Tests**: 27/28 new module tests pass + 26/26 regression. Fixed a Mongo `_id` leakage bug in module-analyze response.
+
 ## Backlog (P0 / P1 / P2)
 - **P1**: Email notifications on appointment confirmation (Resend or SendGrid integration).
 - **P1**: SMS reminders for upcoming appointments (Twilio).
