@@ -151,7 +151,7 @@ MongoDB  >= 6.0
 
 ```bash
 git clone https://github.com/LasTRomqnceE/AIServiceSystem.git
-cd heavy-vehicle-service
+cd AIServiceSystem
 ```
 
 ### 2. Backend Kurulumu
