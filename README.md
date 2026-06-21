@@ -520,7 +520,7 @@ Teknik / Monospace:  Roboto Mono — kod, ID, KM gibi sayısal veriler
 ## 📸 Ekran Görüntüleri
 
 ### Ana Sayfa
-![Ana Sayfa](screenshots/home.png)
+![Ana Sayfa](<img width="1919" height="858" alt="mainpage" src="https://github.com/user-attachments/assets/427c4a5f-2f97-47e0-952a-bef948914e2b" />)
 
 ### Müşteri Paneli (Dashboard)
 ![Müşteri Paneli](screenshots/dashboard.png)
