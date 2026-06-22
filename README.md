@@ -544,9 +544,9 @@ Teknik / Monospace:  Roboto Mono — kod, ID, KM gibi sayısal veriler
 
 ## 🔗 GitHub Proje Bağlantısı
 
-> 📦 **Repo URL:** `https://github.com/<KULLANICI_ADI>/heavy-vehicle-service`
+> 📦 **Repo URL:** `https://github.com/LasTRomqnceE/AIServiceSystem`
 >
-> _Buraya kendi GitHub repo bağlantınızı ekleyiniz._
+>
 
 ---
 
